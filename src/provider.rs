@@ -150,21 +150,34 @@ mod tests {
         }
         let (url, _, body) = Provider::SystemOne.request(&j, None, false).unwrap();
         assert_eq!(url, "https://api.typesafe.ai/v1/systemone");
-        assert_eq!(body, json!({"model": "jev-latest", "state": "Help!", "questions": q}));
+        assert_eq!(
+            body,
+            json!({"model": "jev-latest", "state": "Help!", "questions": q})
+        );
 
         let (url, tok, body) = Provider::Cloudflare.request(&j, None, false).unwrap();
-        assert_eq!(url, "https://api.cloudflare.com/client/v4/accounts/acct/ai/run");
+        assert_eq!(
+            url,
+            "https://api.cloudflare.com/client/v4/accounts/acct/ai/run"
+        );
         assert_eq!(tok, "t");
-        assert_eq!(body, json!({"model": "typesafe/jev", "input": {"state": "Help!", "questions": q}}));
+        assert_eq!(
+            body,
+            json!({"model": "typesafe/jev", "input": {"state": "Help!", "questions": q}})
+        );
 
-        let no_criteria = Judge { criteria: None, ..j };
+        let no_criteria = Judge {
+            criteria: None,
+            ..j
+        };
         assert!(questions(&no_criteria)["gate"].get("criteria").is_none());
         assert!(Provider::OpenAI.request(&no_criteria, None, false).is_err());
     }
 
     #[test]
     fn parsing() {
-        let ok = json!({"model": "jev-1.13.0", "answers": {"gate": {"type": "noul", "noul": 0.95}}});
+        let ok =
+            json!({"model": "jev-1.13.0", "answers": {"gate": {"type": "noul", "noul": 0.95}}});
         assert_eq!(parse(&ok).unwrap(), (0.95, "jev-1.13.0".into()));
         assert_eq!(parse(&json!({"result": ok})).unwrap().0, 0.95);
         assert!(parse(&json!({"model": "m", "answers": {}})).is_err());

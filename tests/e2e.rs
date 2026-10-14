@@ -20,7 +20,11 @@ fn mock(responses: Vec<(u16, &'static str)>) -> String {
                 if let Some(end) = text.find("\r\n\r\n") {
                     let len = text[..end]
                         .lines()
-                        .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap()))
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse::<usize>().unwrap())
+                        })
                         .unwrap_or(0);
                     if buf.len() >= end + 4 + len || n == 0 {
                         break;
@@ -46,13 +50,22 @@ fn jevgate(args: &[&str], stdin: &str) -> Output {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
     child.wait_with_output().unwrap()
 }
 
 const YES: &str = r#"{"model":"jev-1.13.0","answers":{"gate":{"type":"noul","noul":0.9}}}"#;
 const NO: &str = r#"{"model":"jev-1.13.0","answers":{"gate":{"type":"noul","noul":0.1}}}"#;
-const ECHO: [&str; 3] = ["sh", "-c", "cat; echo \" score=$JEVGATE_SCORE model=$JEVGATE_MODEL\"; exit 7"];
+const ECHO: [&str; 3] = [
+    "sh",
+    "-c",
+    "cat; echo \" score=$JEVGATE_SCORE model=$JEVGATE_MODEL\"; exit 7",
+];
 
 #[test]
 fn pass_runs_command_with_input_and_env() {
@@ -61,19 +74,37 @@ fn pass_runs_command_with_input_and_env() {
     args.extend(ECHO);
     let out = jevgate(&args, "hello");
     assert_eq!(out.status.code(), Some(7));
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "hello score=0.9 model=jev-1.13.0\n");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "hello score=0.9 model=jev-1.13.0\n"
+    );
 }
 
 #[test]
-fn pass_without_command_exits_0() {
+fn pass_without_command_prints_input() {
     let url = mock(vec![(200, YES)]);
-    assert_eq!(jevgate(&["--url", &url, "q?"], "hi").status.code(), Some(0));
+    let out = jevgate(&["--url", &url, "q?"], "hi\n");
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(out.stdout, b"hi\n");
+}
+
+#[test]
+fn quiet_pass_prints_nothing() {
+    let url = mock(vec![(200, YES)]);
+    let out = jevgate(&["--url", &url, "-q", "q?"], "hi");
+    assert_eq!(out.status.code(), Some(0));
+    assert!(out.stdout.is_empty());
 }
 
 #[test]
 fn threshold_is_inclusive() {
     let url = mock(vec![(200, YES)]);
-    assert_eq!(jevgate(&["--url", &url, "--threshold", "0.9", "q?"], "hi").status.code(), Some(0));
+    assert_eq!(
+        jevgate(&["--url", &url, "--threshold", "0.9", "q?"], "hi")
+            .status
+            .code(),
+        Some(0)
+    );
 }
 
 #[test]
@@ -105,7 +136,12 @@ fn client_error_exits_2_without_retry() {
 
 #[test]
 fn empty_input_exits_2() {
-    assert_eq!(jevgate(&["--url", "http://127.0.0.1:1", "q?"], "  \n").status.code(), Some(2));
+    assert_eq!(
+        jevgate(&["--url", "http://127.0.0.1:1", "q?"], "  \n")
+            .status
+            .code(),
+        Some(2)
+    );
 }
 
 #[test]
@@ -117,7 +153,10 @@ fn openai_not_implemented() {
 #[test]
 fn signal_killed_command_exits_128_plus_signal() {
     let url = mock(vec![(200, YES)]);
-    let out = jevgate(&["--url", &url, "q?", "--", "sh", "-c", "kill -TERM $$"], "hi");
+    let out = jevgate(
+        &["--url", &url, "q?", "--", "sh", "-c", "kill -TERM $$"],
+        "hi",
+    );
     assert_eq!(out.status.code(), Some(128 + 15));
 }
 
@@ -136,6 +175,11 @@ fn non_utf8_input_exits_2() {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    child.stdin.take().unwrap().write_all(&[0xff, 0xfe]).unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(&[0xff, 0xfe])
+        .unwrap();
     assert_eq!(child.wait().unwrap().code(), Some(2));
 }

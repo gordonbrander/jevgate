@@ -35,7 +35,10 @@ struct Cli {
     /// Log every decision to stderr.
     #[arg(short, long)]
     verbose: bool,
-    /// Command to run on pass (after `--`). Without one, exit 0/1 like `test`.
+    /// Don't print the input on pass; just exit 0/1 like `grep -q`.
+    #[arg(short, long)]
+    quiet: bool,
+    /// Command to run on pass (after `--`). Without one, print the input on pass, like `grep`.
     #[arg(last = true)]
     command: Vec<String>,
 }
@@ -90,6 +93,10 @@ fn run(cli: &Cli) -> Result<ExitCode, String> {
         return Ok(ExitCode::from(1));
     }
     let Some((prog, args)) = cli.command.split_first() else {
+        if !cli.quiet {
+            // Ignore errors: a consumer that closes early (e.g. `head`) is fine.
+            let _ = io::stdout().write_all(input.as_bytes());
+        }
         return Ok(ExitCode::SUCCESS);
     };
 
@@ -102,7 +109,9 @@ fn run(cli: &Cli) -> Result<ExitCode, String> {
         .map_err(|e| format!("spawning {prog}: {e}"))?;
     // Ignore errors: a child that doesn't read stdin closes the pipe early.
     let _ = child.stdin.take().unwrap().write_all(input.as_bytes());
-    let status = child.wait().map_err(|e| format!("waiting for {prog}: {e}"))?;
+    let status = child
+        .wait()
+        .map_err(|e| format!("waiting for {prog}: {e}"))?;
     Ok(exit_code(status))
 }
 
