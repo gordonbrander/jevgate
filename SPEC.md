@@ -122,7 +122,7 @@ This is the native SystemOne protocol from TypeSafe's Jev. Other services speak 
 
 - URL: `https://api.typesafe.ai/v1/systemone`
 - Model: `jev-latest`
-- Auth: `Authorization: Bearer $JEV_API_KEY`
+- Auth: `Authorization: Bearer $JEV_API_KEY`. With `--url`, the key is optional, and if it's unset no `Authorization` header is sent, since local servers (e.g. [reflex](https://github.com/kshetrajna12/reflex)) often run without auth. Without `--url`, a missing key is an error.
 
 Request:
 
@@ -186,7 +186,7 @@ Credentials come from **environment variables only**, never flags, so they stay 
 | cloudflare | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | openai | `OPENAI_API_KEY` |
 
-A missing variable is an error (exit 2) that names the variable. In cron, set the variables at the top of the crontab or in a wrapper script.
+A missing variable is an error (exit 2) that names the variable, except `JEV_API_KEY` with `--url` (§4.1). In cron, set the variables at the top of the crontab or in a wrapper script.
 
 ## 5. Implementation
 
@@ -222,7 +222,7 @@ Each run makes one request, so jevgate doesn't need an async runtime and doesn't
   - A 500 followed by a 200 retries and then passes.
   - A 401 exits 2 and doesn't run the command.
   - Empty stdin exits 2.
-- **Manual smoke test:** a real call against TypeSafe or Cloudflare with a known-yes and a known-no input.
+- **Manual smoke test:** a real call against TypeSafe, Cloudflare, or a local reflex server with a known-yes and a known-no input.
 
 ## 7. Open questions / future
 

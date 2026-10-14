@@ -1,10 +1,17 @@
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::process::{Command, Output, Stdio};
+use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
 /// Serve one canned (status, body) per connection, in order. Returns the URL.
 fn mock(responses: Vec<(u16, &'static str)>) -> String {
+    mock_recording(responses).0
+}
+
+/// Like `mock`, but also sends each raw request (headers and body) down the channel.
+fn mock_recording(responses: Vec<(u16, &'static str)>) -> (String, Receiver<String>) {
+    let (tx, rx) = mpsc::channel();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}/v1/systemone", listener.local_addr().unwrap());
     thread::spawn(move || {
@@ -31,6 +38,7 @@ fn mock(responses: Vec<(u16, &'static str)>) -> String {
                     }
                 }
             }
+            let _ = tx.send(String::from_utf8_lossy(&buf).into_owned());
             let resp = format!(
                 "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
@@ -38,13 +46,21 @@ fn mock(responses: Vec<(u16, &'static str)>) -> String {
             s.write_all(resp.as_bytes()).unwrap();
         }
     });
-    url
+    (url, rx)
 }
 
 fn jevgate(args: &[&str], stdin: &str) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_jevgate"))
+    jevgate_with_key(args, stdin, Some("test"))
+}
+
+fn jevgate_with_key(args: &[&str], stdin: &str, key: Option<&str>) -> Output {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_jevgate"));
+    match key {
+        Some(k) => cmd.env("JEV_API_KEY", k),
+        None => cmd.env_remove("JEV_API_KEY"),
+    };
+    let mut child = cmd
         .args(args)
-        .env("JEV_API_KEY", "test")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -132,6 +148,35 @@ fn client_error_exits_2_without_retry() {
     assert_eq!(out.status.code(), Some(2));
     assert!(out.stdout.is_empty());
     assert!(String::from_utf8_lossy(&out.stderr).contains("HTTP 401: bad key"));
+}
+
+#[test]
+fn sends_key_as_bearer_token() {
+    let (url, rx) = mock_recording(vec![(200, YES)]);
+    let out = jevgate_with_key(&["--url", &url, "q?"], "hi", Some("sekrit"));
+    assert_eq!(out.status.code(), Some(0));
+    let req = rx.recv().unwrap().to_ascii_lowercase();
+    assert!(req.contains("authorization: bearer sekrit\r\n"), "{req}");
+}
+
+#[test]
+fn custom_url_without_key_sends_no_auth() {
+    let (url, rx) = mock_recording(vec![(200, YES)]);
+    let out = jevgate_with_key(&["--url", &url, "q?"], "hi", None);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(
+        !rx.recv()
+            .unwrap()
+            .to_ascii_lowercase()
+            .contains("authorization:")
+    );
+}
+
+#[test]
+fn default_url_without_key_exits_2() {
+    let out = jevgate_with_key(&["q?"], "hi", None);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("JEV_API_KEY"));
 }
 
 #[test]
