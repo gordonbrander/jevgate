@@ -41,10 +41,11 @@ impl Provider {
             if attempt > 0 {
                 thread::sleep(Duration::from_secs(1 << (attempt - 1)));
             }
-            let res = agent
-                .post(&url)
-                .header("Authorization", &format!("Bearer {token}"))
-                .send_json(&body);
+            let mut req = agent.post(&url);
+            if let Some(token) = &token {
+                req = req.header("Authorization", &format!("Bearer {token}"));
+            }
+            let res = req.send_json(&body);
             let mut resp = match res {
                 Ok(r) => r,
                 Err(e) => {
@@ -73,15 +74,21 @@ impl Provider {
         j: &Judge,
         model: Option<&str>,
         has_url: bool,
-    ) -> Result<(String, String, Value), String> {
+    ) -> Result<(String, Option<String>, Value), String> {
         let state = j.state;
         let questions = questions(j);
         match self {
             Provider::SystemOne => {
                 let model = model.unwrap_or("jev-latest");
+                // A custom URL may be a local server (e.g. reflex) with no auth, so the key is optional there.
+                let token = if has_url {
+                    env::var("JEV_API_KEY").ok()
+                } else {
+                    Some(var("JEV_API_KEY")?)
+                };
                 Ok((
                     "https://api.typesafe.ai/v1/systemone".into(),
-                    var("JEV_API_KEY")?,
+                    token,
                     json!({"model": model, "state": state, "questions": questions}),
                 ))
             }
@@ -95,7 +102,7 @@ impl Provider {
                 };
                 Ok((
                     url,
-                    var("CLOUDFLARE_API_TOKEN")?,
+                    Some(var("CLOUDFLARE_API_TOKEN")?),
                     json!({"model": model, "input": {"state": state, "questions": questions}}),
                 ))
             }
@@ -160,7 +167,7 @@ mod tests {
             url,
             "https://api.cloudflare.com/client/v4/accounts/acct/ai/run"
         );
-        assert_eq!(tok, "t");
+        assert_eq!(tok.as_deref(), Some("t"));
         assert_eq!(
             body,
             json!({"model": "typesafe/jev", "input": {"state": "Help!", "questions": q}})

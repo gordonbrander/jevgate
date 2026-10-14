@@ -154,7 +154,7 @@ All providers take the input and a yes/no question and return P(yes). Credential
 | `cloudflare` | `https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/ai/run` | `typesafe/jev` | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | `openai`     | —                                                                             | —              | `OPENAI_API_KEY` (not yet implemented)          |
 
-If a variable is missing, jevgate exits 2 and names the variable.
+If a variable is missing, jevgate exits 2 and names the variable. The one exception: with `systemone` and `--url`, `JEV_API_KEY` is optional (see below).
 
 ### `systemone` (default)
 
@@ -163,6 +163,32 @@ This is the native SystemOne protocol from TypeSafe's Jev. Other services speak 
 ```sh
 jevgate --url http://localhost:8080/v1/systemone --model my-local-model "Is this spam?"
 ```
+
+With `--url`, `JEV_API_KEY` is optional. If it's set, jevgate sends it as a bearer token. If it isn't, jevgate sends no `Authorization` header, which suits a local server with no auth. Without `--url`, the key is required.
+
+### Running locally with reflex
+
+[reflex](https://github.com/kshetrajna12/reflex) is an open re-creation of Jev that runs on your own GPU and serves the SystemOne protocol, so jevgate works with it unchanged. On Apple Silicon:
+
+```sh
+git clone https://github.com/kshetrajna12/reflex && cd reflex
+uv sync --no-sources    # plain PyPI torch, which includes the Mac GPU backend
+uv run --no-sync reflex-serve --stable --device mps --dtype float16 --port 8008
+```
+
+Use `main`: the `stable` tag predates `--device mps`, but `--stable` still applies the recommended settings. The first run downloads Qwen3.5-4B (about 8 GB). On Linux with an NVIDIA GPU, follow reflex's README and drop `--device`/`--dtype`. Then:
+
+```sh
+echo "Production API is returning 500s for all users" \
+  | jevgate -v --url http://localhost:8008/v1/systemone "Does this report an outage?"
+# jevgate: pass score=0.93 threshold=0.50 model=Qwen/Qwen3.5-4B
+```
+
+`--model` doesn't matter here. reflex serves whatever model it loaded and reports that id in `JEVGATE_MODEL`. Things to know:
+
+- **Auth.** If reflex is reachable from other machines, start it with `--api-key` (or `REFLEX_API_KEY`) and give jevgate the same value in `JEV_API_KEY`.
+- **Thresholds.** reflex's scores aren't Jev's scores, and its stable configuration ships uncalibrated. Run with `-v` on your own inputs before choosing `--threshold`. `--yes`/`--no` help a lot on borderline inputs.
+- **Long inputs.** On a Mac, reflex reads roughly 600 tokens/s the first time it sees an input (an M3 Max took about 31 s for a 35 KB log), then caches it. Raise `--timeout` for large inputs, or the first attempt times out and a retry runs.
 
 ### `cloudflare`
 
@@ -196,7 +222,7 @@ cargo test
 ```
 
 - Unit tests in `src/provider.rs` cover request bodies and response parsing.
-- `tests/e2e.rs` runs the built binary against a mock HTTP server on a local `TcpListener`. It covers pass and reject, filter and `-q` output, the inclusive threshold, retries, 401, empty and non-UTF-8 input, signal exit codes, and spawn failures. It doesn't need network access or API keys.
+- `tests/e2e.rs` runs the built binary against a mock HTTP server on a local `TcpListener`. It covers pass and reject, filter and `-q` output, the inclusive threshold, retries, 401, when the bearer token is sent, empty and non-UTF-8 input, signal exit codes, and spawn failures. It doesn't need network access or API keys.
 
 The code is in two files:
 
